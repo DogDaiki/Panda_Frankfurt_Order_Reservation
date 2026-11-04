@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>予約管理画面</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-800 text-white p-4 min-h-screen">
+
+  <div class="max-w-2xl mx-auto space-y-4">
+    <!-- ヘッダー -->
+    <div class="flex justify-between items-center border-b border-gray-700 pb-3">
+      <h1 class="text-2xl font-bold text-indigo-400">予約管理システム</h1>
+      <div>
+        <span id="order-count" class="bg-indigo-600 px-3 py-1 rounded-full text-sm font-bold">未対応: 0件</span>
+      </div>
+    </div>
+
+    <!-- タブ切り替えボタン -->
+    <div class="flex bg-gray-700 p-1 rounded-xl">
+      <button id="tab-btn-realtime" onclick="switchTab('realtime')" class="flex-1 py-2 rounded-lg font-bold text-sm bg-indigo-600 text-white transition">
+        管理
+      </button>
+      <button id="tab-btn-logs" onclick="switchTab('logs')" class="flex-1 py-2 rounded-lg font-bold text-sm text-gray-300 hover:text-white transition">
+        注文ログ・統計
+      </button>
+    </div>
+
+    <!-- 1. リアルタイム管理タブエリア -->
+    <div id="tab-content-realtime" class="space-y-4">
+      <!-- 混雑制御設定フォーム -->
+      <div class="bg-gray-700 p-4 rounded-xl shadow space-y-4">
+        <h2 class="font-bold text-md text-indigo-300 border-b border-gray-600 pb-2">予約時間制限・キャパシティ設定</h2>
+        
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">商品1(フランクフルト)1個あたりの準備時間 (分)</label>
+            <input type="number" id="cfg-prepTimePerItem" min="1" placeholder="5" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+            <p class="text-[10px] text-gray-400 mt-1">※フランクフルト個数 × この時間分だけ先から予約可能</p>
+          </div>
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">時間枠ごとの上限予約数 (件)</label>
+            <input type="number" id="cfg-maxOrdersPerSlot" min="1" placeholder="5" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+            <p class="text-[10px] text-gray-400 mt-1">※同一時間帯で受け付ける予約件数の上限</p>
+          </div>
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">1人あたりの最大同時予約数 (件)</label>
+            <input type="number" id="cfg-maxPerUser" min="1" placeholder="2" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+            <p class="text-[10px] text-gray-400 mt-1">※受け取り前に保持できる最大注文件数</p>
+          </div>
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">受取超過キャンセル判定 (分)</label>
+            <input type="number" id="cfg-expireTime" min="0" placeholder="20" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+            <p class="text-[10px] text-gray-400 mt-1">※希望・準備完了から何分経過でキャンセル表示か</p>
+          </div>
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">判定期間 (前後何分間)</label>
+            <input type="number" id="cfg-interval" min="1" placeholder="15" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+          </div>
+          <div>
+            <label class="block text-gray-300 font-bold mb-1">営業終了時刻 (HH:mm)</label>
+            <input type="text" id="cfg-endTime" placeholder="17:00" class="w-full p-2 bg-gray-800 border border-gray-600 rounded font-bold text-white">
+          </div>
+        </div>
+
+        <button onclick="saveConfig()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded font-bold text-sm transition">
+          設定を保存して予約画面に即時反映
+        </button>
+      </div>
+
+      <!-- 進行中の注文カードリスト -->
+      <div id="order-list" class="space-y-4">
+        <div class="text-center text-gray-400 py-10">予約待機中...</div>
+      </div>
+    </div>
+
+    <!-- 2. 注文ログ・統計タブエリア -->
+    <div id="tab-content-logs" class="hidden space-y-4">
+      <!-- 日付フィルター -->
+      <div class="bg-gray-700 p-3 rounded-xl flex items-center justify-between">
+        <label class="text-sm font-bold text-indigo-300">集計表示日:</label>
+        <select id="stat-date-select" onchange="renderAnalytics()" class="bg-gray-800 text-white p-2 rounded border border-gray-600 font-bold text-sm">
+          <option value="ALL">全期間（累計）</option>
+        </select>
+      </div>
+
+      <!-- 統計サマリーパネル -->
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="bg-gray-700 p-3 rounded-xl">
+          <div class="text-xs text-gray-400 font-bold">総売上額</div>
+          <div id="stat-total-sales" class="text-xl font-black text-green-400 mt-1">0円</div>
+        </div>
+        <div class="bg-gray-700 p-3 rounded-xl">
+          <div class="text-xs text-gray-400 font-bold">提供済み件数</div>
+          <div id="stat-completed-count" class="text-xl font-black text-indigo-400 mt-1">0件</div>
+        </div>
+        <div class="bg-gray-700 p-3 rounded-xl">
+          <div class="text-xs text-gray-400 font-bold">キャンセル数</div>
+          <div id="stat-cancelled-count" class="text-xl font-black text-red-400 mt-1">0件</div>
+        </div>
+      </div>
+
+      <!-- 時間帯別売上グラフ -->
+      <div class="bg-gray-700 p-4 rounded-xl space-y-3">
+        <h3 class="font-bold text-sm text-indigo-300 border-b border-gray-600 pb-2">時間帯別売上グラフ (1時間ごと)</h3>
+        <div id="stat-hourly-sales" class="space-y-3 text-sm text-gray-200">
+          <div class="text-gray-400 text-xs">データ読み込み中...</div>
+        </div>
+      </div>
+
+      <!-- 商品別販売数集計 -->
+      <div class="bg-gray-700 p-4 rounded-xl space-y-2">
+        <h3 class="font-bold text-sm text-indigo-300 border-b border-gray-600 pb-2">商品別累計販売数</h3>
+        <div id="stat-item-breakdown" class="space-y-1 text-sm text-gray-200">
+          <div class="text-gray-400 text-xs">データ読み込み中...</div>
+        </div>
+      </div>
+
+      <!-- 過去ログ一覧 -->
+      <div class="space-y-2">
+        <h3 class="font-bold text-md text-gray-300">過去の予約ログ一覧</h3>
+        <div id="log-list" class="space-y-3">
+          <div class="text-center text-gray-400 py-10">ログを取得中...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.switchTab = (tabName) => {
+      const btnRealtime = document.getElementById('tab-btn-realtime');
+      const btnLogs = document.getElementById('tab-btn-logs');
+      const contentRealtime = document.getElementById('tab-content-realtime');
+      const contentLogs = document.getElementById('tab-content-logs');
+
+      if (tabName === 'realtime') {
+        btnRealtime.className = "flex-1 py-2 rounded-lg font-bold text-sm bg-indigo-600 text-white transition";
+        btnLogs.className = "flex-1 py-2 rounded-lg font-bold text-sm text-gray-300 hover:text-white transition";
+        contentRealtime.classList.remove('hidden');
+        contentLogs.classList.add('hidden');
+      } else {
+        btnLogs.className = "flex-1 py-2 rounded-lg font-bold text-sm bg-indigo-600 text-white transition";
+        btnRealtime.className = "flex-1 py-2 rounded-lg font-bold text-sm text-gray-300 hover:text-white transition";
+        contentLogs.classList.remove('hidden');
+        contentRealtime.classList.add('hidden');
+      }
+    };
+  </script>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, doc, setDoc, getDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const itemNames = {
+      frankfurter: 'フランクフルト',
+      hotdog: 'ホットドッグ'
+    };
+
+    let cachedOrders = [];
+    let currentConfig = { prepTimePerItem: 5, expireTime: 20, maxPerUser: 2, maxOrdersPerSlot: 5, interval: 15, endTime: "17:00" };
+
+    function playNotificationSound() {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    }
+
+    async function initSettings() {
+      const configRef = doc(db, "settings", "config");
+      const configSnap = await getDoc(configRef);
+      const defaultConfig = { prepTimePerItem: 5, expireTime: 20, maxPerUser: 2, maxOrdersPerSlot: 5, interval: 15, endTime: "17:00" };
+
+      if (configSnap.exists()) {
+        const data = configSnap.data();
+        currentConfig = {
+          prepTimePerItem: data.prepTimePerItem !== undefined ? data.prepTimePerItem : 5,
+          expireTime: data.expireTime !== undefined ? data.expireTime : 20,
+          maxPerUser: data.maxPerUser !== undefined ? data.maxPerUser : 2,
+          maxOrdersPerSlot: data.maxOrdersPerSlot !== undefined ? data.maxOrdersPerSlot : 5,
+          interval: data.interval || 15,
+          endTime: data.endTime || "17:00"
+        };
+      } else {
+        currentConfig = defaultConfig;
+        await setDoc(configRef, defaultConfig);
+      }
+
+      if (document.getElementById('cfg-prepTimePerItem')) document.getElementById('cfg-prepTimePerItem').value = currentConfig.prepTimePerItem;
+      if (document.getElementById('cfg-maxOrdersPerSlot')) document.getElementById('cfg-maxOrdersPerSlot').value = currentConfig.maxOrdersPerSlot;
+      if (document.getElementById('cfg-maxPerUser')) document.getElementById('cfg-maxPerUser').value = currentConfig.maxPerUser;
+      if (document.getElementById('cfg-expireTime')) document.getElementById('cfg-expireTime').value = currentConfig.expireTime;
+      if (document.getElementById('cfg-interval')) document.getElementById('cfg-interval').value = currentConfig.interval;
+      if (document.getElementById('cfg-endTime')) document.getElementById('cfg-endTime').value = currentConfig.endTime;
+    }
+
+    window.saveConfig = async () => {
+      const prepTimePerItem = parseInt(document.getElementById('cfg-prepTimePerItem').value, 10);
+      const maxOrdersPerSlot = parseInt(document.getElementById('cfg-maxOrdersPerSlot').value, 10);
+      const maxPerUser = parseInt(document.getElementById('cfg-maxPerUser').value, 10);
+      const expireTime = parseInt(document.getElementById('cfg-expireTime').value, 10);
+      const interval = parseInt(document.getElementById('cfg-interval').value, 10);
+      const endTime = document.getElementById('cfg-endTime').value.trim();
+
+      if (isNaN(prepTimePerItem) || isNaN(maxOrdersPerSlot) || isNaN(maxPerUser) || isNaN(expireTime) || isNaN(interval) || !endTime) {
+        return alert('正しい数値を入力してください');
+      }
+
+      try {
+        currentConfig = { prepTimePerItem, maxOrdersPerSlot, maxPerUser, expireTime, interval, endTime };
+        await setDoc(doc(db, "settings", "config"), currentConfig, { merge: true });
+        alert('設定を保存・更新しました');
+        renderRealtimeList();
+      } catch (e) {
+        console.error("保存エラー:", e);
+        alert('設定の保存に失敗しました: ' + e.message);
+      }
+    };
+
+    const allOrdersQuery = collection(db, "orders");
+    let isInitialLoad = true;
+
+    function formatDateStr(timestamp) {
+      if (!timestamp) return '日付不明';
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      const y = date.getFullYear();
+      const m = (date.getMonth() + 1).toString().padStart(2, '0');
+      const d = date.getDate().toString().padStart(2, '0');
+      return `${y}/${m}/${d}`;
+    }
+
+    onSnapshot(allOrdersQuery, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added" && !isInitialLoad) {
+          playNotificationSound();
+        }
+      });
+      isInitialLoad = false;
+
+      cachedOrders = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        data: docSnap.data(),
+        dateStr: formatDateStr(docSnap.data().createdAt)
+      }));
+
+      renderRealtimeList();
+      updateDateSelectOptions();
+      window.renderAnalytics();
+    });
+
+    setInterval(() => {
+      if (cachedOrders.length > 0) renderRealtimeList();
+    }, 60000);
+
+    function renderRealtimeList() {
+      const realtimeContainer = document.getElementById('order-list');
+      let uncompletedCount = 0;
+      let realtimeCardsHtml = '';
+
+      const now = new Date();
+      const currentTotalMins = now.getHours() * 60 + now.getMinutes();
+
+      const sortedUncompleted = cachedOrders
+        .filter(o => o.data.status !== 'completed' && o.data.status !== 'cancelled')
+        .sort((a, b) => {
+          const timeA = a.data.timeSlot || '99:99';
+          const timeB = b.data.timeSlot || '99:99';
+          if (timeA !== timeB) return timeA.localeCompare(timeB);
+          const createdA = a.data.createdAt ? (a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0) : 0;
+          const createdB = b.data.createdAt ? (b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0) : 0;
+          return createdA - createdB;
+        });
+
+      sortedUncompleted.forEach(({ id, data: order }) => {
+        uncompletedCount++;
+
+        let itemsHtml = '';
+        for (const [itemId, qty] of Object.entries(order.items || {})) {
+          if (qty > 0) {
+            itemsHtml += `<li class="font-bold text-yellow-300">${itemNames[itemId] || itemId} × ${qty}</li>`;
+          }
+        }
+
+        const isReady = order.status === 'ready';
+        const isUserCancelled = order.status === 'user_cancelled';
+
+        let borderClass = 'border-yellow-500';
+        let badgeText = '調理・受付中';
+        let badgeClass = 'text-yellow-300';
+
+        if (isUserCancelled) {
+          borderClass = 'border-red-600 bg-red-950/40';
+          badgeText = '[注意] 客側キャンセル申請あり';
+          badgeClass = 'bg-red-600 text-white font-black animate-pulse';
+        } else if (isReady) {
+          borderClass = 'border-blue-500';
+          badgeText = '準備完了（受取可能）';
+          badgeClass = 'text-blue-300';
+        }
+
+        let isTimeSlotExpired = false;
+        if (order.timeSlot) {
+          const [h, m] = order.timeSlot.split(':').map(Number);
+          const slotTotalMins = h * 60 + m;
+          if (currentTotalMins >= slotTotalMins + parseInt(currentConfig.expireTime, 10)) {
+            isTimeSlotExpired = true;
+          }
+        }
+
+        let isReadyTimeExpired = false;
+        if (isReady && order.readyAt) {
+          const readyDate = order.readyAt.toDate ? order.readyAt.toDate() : new Date(order.readyAt);
+          const diffMins = Math.floor((now.getTime() - readyDate.getTime()) / 60000);
+          if (diffMins >= parseInt(currentConfig.expireTime, 10)) {
+            isReadyTimeExpired = true;
+          }
+        }
+
+        const canAdminCancel = isReady && isTimeSlotExpired && isReadyTimeExpired;
+
+        realtimeCardsHtml += `
+          <div class="bg-gray-700 p-5 rounded-xl border-l-8 ${borderClass} shadow-lg space-y-3">
+            <div class="flex justify-between items-start border-b border-gray-600 pb-2">
+              <div>
+                <span class="text-xs px-2 py-1 rounded bg-gray-600 font-bold ${badgeClass}">
+                  ${badgeText}
+                </span>
+                <div class="text-2xl font-black text-yellow-400 mt-1">
+                  No. ${order.orderNumber || 'なし'}
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="text-2xl font-bold text-green-400">${order.totalPrice}円</span>
+              </div>
+            </div>
+
+            <div class="text-white space-y-1">
+              <div class="text-md font-bold text-indigo-300">受取希望時間: ${order.timeSlot || '指定なし'}</div>
+            </div>
+
+            <div class="bg-gray-800 p-3 rounded-lg">
+              <ul class="list-disc list-inside space-y-1">
+                ${itemsHtml}
+              </ul>
+            </div>
+
+            <div class="flex flex-col space-y-2 pt-2">
+              ${isUserCancelled ? `
+                <button onclick="updateOrderStatus('${id}', 'cancelled', '${order.orderNumber || ''}')" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow transition flex items-center justify-center space-x-1">
+                  <span>客側キャンセルを確認（リストから消去）</span>
+                </button>
+              ` : `
+                <div class="flex space-x-2">
+                  ${!isReady ? `
+                    <button onclick="updateOrderStatus('${id}', 'ready', '${order.orderNumber || ''}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition">
+                      準備完了にする
+                    </button>
+                  ` : ''}
+                  <button onclick="updateOrderStatus('${id}', 'completed', '${order.orderNumber || ''}')" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg transition">
+                    提供済み（リストから削除）
+                  </button>
+                </div>
+
+                ${canAdminCancel ? `
+                  <button onclick="updateOrderStatus('${id}', 'cancelled', '${order.orderNumber || ''}')" class="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-2 rounded-lg text-xs border border-red-400 transition">
+                    経過による予約キャンセル (制限時間超過)
+                  </button>
+                ` : ''}
+              `}
+            </div>
+          </div>
+        `;
+      });
+
+      document.getElementById('order-count').innerText = `未対応: ${uncompletedCount}件`;
+
+      if (uncompletedCount === 0) {
+        realtimeContainer.innerHTML = '<div class="text-center text-gray-400 py-10">現在、未対応の予約はありません</div>';
+      } else {
+        realtimeContainer.innerHTML = realtimeCardsHtml;
+      }
+    }
+
+    function updateDateSelectOptions() {
+      const select = document.getElementById('stat-date-select');
+      const currentSelected = select.value;
+
+      const dateSet = new Set();
+      cachedOrders.forEach(o => {
+        if (o.dateStr && o.dateStr !== '日付不明') {
+          dateSet.add(o.dateStr);
+        }
+      });
+
+      const sortedDates = Array.from(dateSet).sort().reverse();
+
+      let optionsHtml = '<option value="ALL">全期間（累計）</option>';
+      sortedDates.forEach(d => {
+        optionsHtml += `<option value="${d}">${d}</option>`;
+      });
+
+      select.innerHTML = optionsHtml;
+      if (currentSelected && (currentSelected === 'ALL' || dateSet.has(currentSelected))) {
+        select.value = currentSelected;
+      }
+    }
+
+    window.renderAnalytics = () => {
+      const selectedDate = document.getElementById('stat-date-select').value;
+      const logContainer = document.getElementById('log-list');
+
+      const filteredOrders = cachedOrders.filter(o => {
+        if (selectedDate === 'ALL') return true;
+        return o.dateStr === selectedDate;
+      });
+
+      let totalSales = 0;
+      let completedCount = 0;
+      let cancelledCount = 0;
+      let itemSales = { frankfurter: 0, hotdog: 0 };
+      let hourlySales = {};
+      let logCardsHtml = '';
+
+      const sortedFiltered = [...filteredOrders].sort((a, b) => {
+        const timeA = a.data.timeSlot || '99:99';
+        const timeB = b.data.timeSlot || '99:99';
+        if (timeA !== timeB) return timeA.localeCompare(timeB);
+        const createdA = a.data.createdAt ? (a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0) : 0;
+        const createdB = b.data.createdAt ? (b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0) : 0;
+        return createdA - createdB;
+      });
+
+      sortedFiltered.forEach(({ data: order }) => {
+        let itemsHtml = '';
+        for (const [itemId, qty] of Object.entries(order.items || {})) {
+          if (qty > 0) {
+            itemsHtml += `<li class="font-bold text-yellow-300">${itemNames[itemId] || itemId} × ${qty}</li>`;
+          }
+        }
+
+        if (order.status === 'completed') {
+          totalSales += (order.totalPrice || 0);
+          completedCount++;
+
+          for (const [itemId, qty] of Object.entries(order.items || {})) {
+            if (qty > 0) {
+              itemSales[itemId] = (itemSales[itemId] || 0) + qty;
+            }
+          }
+
+          if (order.timeSlot) {
+            const hour = order.timeSlot.split(':')[0];
+            const hourLabel = `${hour}:00 〜 ${hour}:59`;
+            if (!hourlySales[hourLabel]) {
+              hourlySales[hourLabel] = { sales: 0, count: 0 };
+            }
+            hourlySales[hourLabel].sales += (order.totalPrice || 0);
+            hourlySales[hourLabel].count += 1;
+          }
+        } else if (order.status === 'cancelled') {
+          cancelledCount++;
+        }
+
+        let logStatusBadge = '';
+        if (order.status === 'completed') {
+          logStatusBadge = '<span class="bg-green-600 text-white text-xs px-2 py-0.5 rounded font-bold">提供済み</span>';
+        } else if (order.status === 'cancelled') {
+          logStatusBadge = '<span class="bg-red-600 text-white text-xs px-2 py-0.5 rounded font-bold">キャンセル完了</span>';
+        } else if (order.status === 'user_cancelled') {
+          logStatusBadge = '<span class="bg-orange-600 text-white text-xs px-2 py-0.5 rounded font-bold">キャンセル申請中</span>';
+        } else if (order.status === 'ready') {
+          logStatusBadge = '<span class="bg-blue-600 text-white text-xs px-2 py-0.5 rounded font-bold">準備完了</span>';
+        } else {
+          logStatusBadge = '<span class="bg-yellow-500 text-gray-900 text-xs px-2 py-0.5 rounded font-bold">準備中</span>';
+        }
+
+        logCardsHtml += `
+          <div class="bg-gray-700 p-4 rounded-xl border-l-4 border-gray-500 text-sm space-y-2">
+            <div class="flex justify-between items-center border-b border-gray-600 pb-1">
+              <div class="flex items-center space-x-2">
+                ${logStatusBadge}
+                <span class="font-bold text-yellow-400">No. ${order.orderNumber || '----'}</span>
+              </div>
+              <span class="font-bold text-gray-300">${order.timeSlot || ''}</span>
+            </div>
+            <div class="flex justify-between text-gray-200">
+              <span class="font-bold text-green-400">合計: ${order.totalPrice}円</span>
+            </div>
+            <div class="bg-gray-800 p-2 rounded text-xs text-gray-300">
+              <ul class="list-disc list-inside">
+                ${itemsHtml}
+              </ul>
+            </div>
+          </div>
+        `;
+      });
+
+      document.getElementById('stat-total-sales').innerText = `${totalSales.toLocaleString()}円`;
+      document.getElementById('stat-completed-count').innerText = `${completedCount}件`;
+      document.getElementById('stat-cancelled-count').innerText = `${cancelledCount}件`;
+
+      const hourlyContainer = document.getElementById('stat-hourly-sales');
+      const sortedHours = Object.keys(hourlySales).sort();
+
+      if (sortedHours.length === 0) {
+        hourlyContainer.innerHTML = '<div class="text-gray-400 text-xs">選択した日の提供済みデータがありません</div>';
+      } else {
+        const maxSales = Math.max(...Object.values(hourlySales).map(h => h.sales));
+
+        hourlyContainer.innerHTML = sortedHours.map(hourKey => {
+          const item = hourlySales[hourKey];
+          const percent = maxSales > 0 ? Math.round((item.sales / maxSales) * 100) : 0;
+
+          return `
+            <div class="space-y-1">
+              <div class="flex justify-between text-xs font-bold">
+                <span class="text-gray-300">${hourKey}</span>
+                <span>
+                  <span class="text-green-400 font-extrabold">${item.sales.toLocaleString()}円</span>
+                  <span class="text-gray-400 text-[10px] ml-1">(${item.count}件)</span>
+                </span>
+              </div>
+              <div class="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+                <div class="bg-green-500 h-full rounded-full transition-all duration-500" style="width: ${Math.max(percent, 3)}%;"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const breakdownContainer = document.getElementById('stat-item-breakdown');
+      breakdownContainer.innerHTML = Object.entries(itemSales).map(([key, count]) => `
+        <div class="flex justify-between items-center bg-gray-800 p-2 rounded">
+          <span>${itemNames[key] || key}</span>
+          <span class="font-bold text-yellow-400">${count} 個</span>
+        </div>
+      `).join('');
+
+      if (sortedFiltered.length === 0) {
+        logContainer.innerHTML = '<div class="text-center text-gray-400 py-10">選択した日の予約履歴はありません</div>';
+      } else {
+        logContainer.innerHTML = logCardsHtml;
+      }
+    };
+
+    window.updateOrderStatus = async (docId, newStatus, orderNum) => {
+      let actionLabel = "ステータスを変更";
+      if (newStatus === "ready") actionLabel = "「準備完了」";
+      if (newStatus === "completed") actionLabel = "「提供済み」";
+      if (newStatus === "cancelled") actionLabel = "「予約キャンセル」";
+
+      const confirmMsg = `予約 No. ${orderNum || '----'} を ${actionLabel} にしてよろしいですか？`;
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const orderRef = doc(db, "orders", docId);
+        const updateData = { 
+          status: newStatus,
+          orderNumber: orderNum
+        };
+        
+        if (newStatus === "ready") {
+          updateData.readyAt = serverTimestamp();
+        }
+
+        await updateDoc(orderRef, updateData);
+      } catch (e) {
+        console.error("更新エラー:", e);
+        alert("更新に失敗しました: " + e.message);
+      }
+    };
+
+    initSettings();
+  </script>
+</body>
+</html>

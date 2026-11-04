@@ -1,0 +1,13 @@
+# 依存ライブラリ
+node_modules/
+
+# ビルド成果物
+dist/
+
+# 環境変数
+.env
+.env.local
+
+# OS自動生成ファイル
+.DS_Store
+Thumbs.db

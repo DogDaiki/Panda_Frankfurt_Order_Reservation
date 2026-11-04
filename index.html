@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学祭サークル注文予約</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4 min-h-screen">
+  <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
+    <h1 class="text-2xl font-bold text-center mb-6 text-indigo-600">商品予約システム</h1>
+
+    <!-- 複数注文のリアルタイムステータス表示エリア -->
+    <div id="status-container" class="hidden mb-6 space-y-3">
+      <div class="text-sm font-bold text-gray-700 border-b pb-1">現在の予約状況</div>
+      <div id="status-card-list" class="space-y-3"></div>
+    </div>
+
+    <!-- 注文フォームエリア -->
+    <div id="order-form-area">
+      <!-- メニュー一覧 -->
+      <div id="menu-list" class="space-y-4 mb-6"></div>
+
+      <!-- 受取時間帯フォーム -->
+      <div class="border-t pt-4 space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">受取希望時間</label>
+          <div class="flex space-x-2">
+            <select id="select-hour" onchange="updateMinuteOptions()" class="w-1/2 p-2 border rounded-md bg-white font-bold text-gray-700">
+              <option value="">時を選択</option>
+            </select>
+            <select id="select-minute" onchange="validateTimeSelection()" class="w-1/2 p-2 border rounded-md bg-white font-bold text-gray-700" disabled>
+              <option value="">分を選択</option>
+            </select>
+          </div>
+          <div id="lead-time-info" class="text-[11px] text-indigo-600 font-bold mt-1 hidden"></div>
+        </div>
+
+        <!-- キャンセルに関する注意事項表示エリア -->
+        <div class="bg-amber-50 border border-amber-200 rounded-md p-3 text-xs text-amber-800 space-y-1">
+          <div class="font-bold flex items-center">
+            <span>[ご確認事項]</span>
+          </div>
+          <p id="cancel-notice-text">
+            ※受取希望時間および準備完了から一定時間を過ぎてもお受け取りに来られない場合、予約が自動キャンセルとなる場合がございます。
+          </p>
+        </div>
+      </div>
+
+      <!-- 合計金額と注文ボタン -->
+      <div class="mt-6 border-t pt-4">
+        <div class="flex justify-between items-center text-xl font-bold mb-4">
+          <span>合計金額:</span>
+          <span id="total-price" class="text-indigo-600">0円</span>
+        </div>
+        <button id="submit-btn" onclick="submitOrder()" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition">
+          予約を確定する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 注文完了・詳細ポップアップ -->
+  <div id="success-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center space-y-4">
+      <h2 class="text-xl font-bold text-green-600">予約を受け付けました</h2>
+      <p class="text-xs text-gray-600">ブースにて以下の受け取り番号をご提示ください。</p>
+      
+      <!-- ステータスバッジ ＆ 受取番号 -->
+      <div class="bg-indigo-50 border-2 border-indigo-500 rounded-lg p-4 space-y-2">
+        <div class="flex justify-between items-center text-xs font-bold">
+          <span id="modal-time-slot" class="text-gray-600">希望時間: --:--</span>
+          <span id="modal-status-badge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-400 text-yellow-900">
+            調理・準備中
+          </span>
+        </div>
+
+        <div class="text-xs text-indigo-500 font-bold border-t border-indigo-200 pt-2">あなたの受け取り番号</div>
+        <div id="modal-order-number" class="text-4xl font-extrabold text-indigo-700 my-1">----</div>
+      </div>
+
+      <!-- 注文内容明細 -->
+      <div class="bg-gray-50 p-3 rounded-lg border text-left text-xs space-y-2">
+        <div class="font-bold text-gray-700 border-b pb-1">注文明細</div>
+        <ul id="modal-item-list" class="space-y-1 text-gray-600"></ul>
+        <div class="border-t pt-1 flex justify-between font-bold text-gray-800 text-sm">
+          <span>合計金額:</span>
+          <span id="modal-total-price" class="text-indigo-600">0円</span>
+        </div>
+      </div>
+
+      <button onclick="closeModal()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold">
+        閉じる（画面下部で状況確認できます）
+      </button>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, serverTimestamp, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const items = [
+      { id: 'frankfurter', name: 'フランクフルト', price: 300 },
+      { id: 'hotdog', name: 'ホットドッグ', price: 400 }
+    ];
+
+    const itemNames = {
+      frankfurter: 'フランクフルト',
+      hotdog: 'ホットドッグ'
+    };
+
+    let cart = { frankfurter: 0, hotdog: 0 };
+    let activeUnsubscribes = {};
+    let activeOrdersData = {};
+    let currentConfig = { prepTimePerItem: 5, expireTime: 20, maxPerUser: 2, maxOrdersPerSlot: 5, interval: 15, endTime: "17:00" };
+    let allOrders = [];
+    let latestCreatedDocId = null;
+
+    function calculateRequiredLeadTimeMins() {
+      const frankfurterCount = cart.frankfurter || 0;
+      const perItemTime = parseInt(currentConfig.prepTimePerItem || 5, 10);
+      return Math.max(perItemTime, frankfurterCount * perItemTime);
+    }
+
+    async function generateUniqueOrderNumber() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+      let isUnique = false;
+      let orderNumber = '';
+
+      while (!isUnique) {
+        const randomChar = chars.charAt(Math.floor(Math.random() * chars.length));
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        orderNumber = `${randomChar}-${randomNum}`;
+
+        const q = query(
+          collection(db, "orders"),
+          where("orderNumber", "==", orderNumber)
+        );
+        const snapshot = await getDocs(q);
+        const activeMatch = snapshot.docs.find(d => d.data().status !== 'completed' && d.data().status !== 'cancelled');
+        if (!activeMatch) {
+          isUnique = true;
+        }
+      }
+
+      return orderNumber;
+    }
+
+    function timeToMinutes(timeStr) {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function updateHourOptions() {
+      const hourSelect = document.getElementById('select-hour');
+      const selectedHour = hourSelect.value;
+      const leadTimeInfo = document.getElementById('lead-time-info');
+
+      const requiredLeadMins = calculateRequiredLeadTimeMins();
+      const frankfurterCount = cart.frankfurter || 0;
+      const totalCount = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
+
+      if (totalCount > 0) {
+        leadTimeInfo.textContent = `フランクフルト ${frankfurterCount} 個分の目安準備時間: 約 ${requiredLeadMins} 分後〜受取可能`;
+        leadTimeInfo.classList.remove('hidden');
+      } else {
+        leadTimeInfo.classList.add('hidden');
+      }
+
+      const now = new Date();
+      const startMins = now.getHours() * 60 + now.getMinutes() + requiredLeadMins;
+      const endMins = timeToMinutes(currentConfig.endTime || "17:00");
+
+      const startHour = Math.floor(startMins / 60);
+      const endHour = Math.floor(endMins / 60);
+
+      hourSelect.replaceChildren();
+
+      if (startMins >= endMins) {
+        const opt = document.createElement('option');
+        opt.value = "";
+        opt.textContent = "受付終了";
+        hourSelect.appendChild(opt);
+        document.getElementById('select-minute').disabled = true;
+        return;
+      }
+
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = "";
+      defaultOpt.textContent = "時を選択";
+      hourSelect.appendChild(defaultOpt);
+
+      for (let h = startHour; h <= endHour; h++) {
+        const hourStr = h.toString().padStart(2, '0');
+        const opt = document.createElement('option');
+        opt.value = hourStr;
+        opt.textContent = `${h} 時`;
+        hourSelect.appendChild(opt);
+      }
+
+      hourSelect.value = selectedHour;
+
+      if (selectedHour) {
+        updateMinuteOptions();
+      }
+    }
+
+    window.updateMinuteOptions = () => {
+      const hourSelect = document.getElementById('select-hour');
+      const minuteSelect = document.getElementById('select-minute');
+      const hourStr = hourSelect.value;
+
+      minuteSelect.replaceChildren();
+
+      if (!hourStr) {
+        const opt = document.createElement('option');
+        opt.value = "";
+        opt.textContent = "分を選択";
+        minuteSelect.appendChild(opt);
+        minuteSelect.disabled = true;
+        return;
+      }
+
+      minuteSelect.disabled = false;
+      const selectedMinute = minuteSelect.value;
+
+      const requiredLeadMins = calculateRequiredLeadTimeMins();
+      const now = new Date();
+      const startMins = now.getHours() * 60 + now.getMinutes() + requiredLeadMins;
+      const endMins = timeToMinutes(currentConfig.endTime || "17:00");
+      const halfInterval = Math.floor((currentConfig.interval || 15) / 2);
+
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = "";
+      defaultOpt.textContent = "分を選択";
+      minuteSelect.appendChild(defaultOpt);
+
+      const targetHour = parseInt(hourStr, 10);
+
+      for (let m = 0; m < 60; m++) {
+        const currentMins = targetHour * 60 + m;
+        if (currentMins < startMins || currentMins > endMins) continue;
+
+        const slotOrderCount = allOrders.filter(ord => {
+          if (!ord.timeSlot || ord.status === 'completed' || ord.status === 'cancelled') return false;
+          const ordMins = timeToMinutes(ord.timeSlot);
+          return Math.abs(ordMins - currentMins) <= halfInterval;
+        }).length;
+
+        const maxAllowedOrders = parseInt(currentConfig.maxOrdersPerSlot || 5, 10);
+        const isFull = slotOrderCount >= maxAllowedOrders;
+        const minStr = m.toString().padStart(2, '0');
+
+        const opt = document.createElement('option');
+        opt.value = minStr;
+        if (isFull) {
+          opt.setAttribute('data-full', 'true');
+          opt.className = 'text-red-600 font-bold bg-red-50';
+          opt.textContent = `${minStr} 分 (満員)`;
+        } else {
+          opt.setAttribute('data-full', 'false');
+          opt.textContent = `${minStr} 分`;
+        }
+        minuteSelect.appendChild(opt);
+      }
+
+      minuteSelect.value = selectedMinute;
+    };
+
+    window.validateTimeSelection = () => {
+      const minuteSelect = document.getElementById('select-minute');
+      const selectedOpt = minuteSelect.options[minuteSelect.selectedIndex];
+
+      if (selectedOpt && selectedOpt.getAttribute('data-full') === 'true') {
+        alert('この時間帯は予約件数の上限に達しているため予約できません。別の時間帯を選択してください。');
+        minuteSelect.value = '';
+      }
+    };
+
+    function updateCancelNoticeText() {
+      const noticeElem = document.getElementById('cancel-notice-text');
+      if (noticeElem && currentConfig.expireTime) {
+        noticeElem.textContent = `※受取希望時間および「準備完了」通知から ${currentConfig.expireTime} 分が経過してもお受け取りに来られない場合、自動的にキャンセルとさせていただく場合がございます。`;
+      }
+    }
+
+    function initSystem() {
+      onSnapshot(doc(db, "settings", "config"), (configSnap) => {
+        if (configSnap.exists()) {
+          const data = configSnap.data();
+          currentConfig = {
+            prepTimePerItem: data.prepTimePerItem !== undefined ? data.prepTimePerItem : 5,
+            expireTime: data.expireTime !== undefined ? data.expireTime : 20,
+            maxPerUser: data.maxPerUser !== undefined ? data.maxPerUser : 2,
+            maxOrdersPerSlot: data.maxOrdersPerSlot !== undefined ? data.maxOrdersPerSlot : 5,
+            interval: data.interval || 15,
+            endTime: data.endTime || "17:00"
+          };
+        }
+        updateHourOptions();
+        updateCancelNoticeText();
+      });
+
+      onSnapshot(collection(db, "orders"), (ordersSnap) => {
+        allOrders = ordersSnap.docs.map(d => d.data());
+        updateHourOptions();
+      });
+
+      setInterval(updateHourOptions, 60000);
+    }
+
+    function watchAllSavedOrders() {
+      const savedDocIds = JSON.parse(localStorage.getItem('myDocIds') || '[]');
+      const container = document.getElementById('status-container');
+
+      if (savedDocIds.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+
+      savedDocIds.forEach(docId => {
+        if (activeUnsubscribes[docId]) return;
+
+        const orderRef = doc(db, "orders", docId);
+        
+        activeUnsubscribes[docId] = onSnapshot(orderRef, (docSnapshot) => {
+          if (!docSnapshot.exists()) {
+            removeDocIdFromStorage(docId);
+            return;
+          }
+
+          activeOrdersData[docId] = docSnapshot.data();
+          renderStatusCards();
+          
+          if (latestCreatedDocId === docId && !document.getElementById('success-modal').classList.contains('hidden')) {
+            updateModalStatus(activeOrdersData[docId]);
+          }
+        });
+      });
+    }
+
+    function removeDocIdFromStorage(docId) {
+      if (activeUnsubscribes[docId]) {
+        activeUnsubscribes[docId]();
+        delete activeUnsubscribes[docId];
+      }
+      delete activeOrdersData[docId];
+
+      let savedDocIds = JSON.parse(localStorage.getItem('myDocIds') || '[]');
+      savedDocIds = savedDocIds.filter(id => id !== docId);
+      localStorage.setItem('myDocIds', JSON.stringify(savedDocIds));
+
+      renderStatusCards();
+    }
+
+    window.cancelOrder = async (docId, orderNumber) => {
+      if (!confirm(`予約 No. ${orderNumber || ''} をキャンセルしますか？`)) return;
+
+      try {
+        const orderRef = doc(db, "orders", docId);
+        await updateDoc(orderRef, { 
+          status: "user_cancelled",
+          orderNumber: orderNumber
+        });
+        alert('キャンセルの申請を送信しました。管理者の確認後に予約が解除されます。');
+      } catch (e) {
+        console.error(e);
+        alert('キャンセルの送信に失敗しました。');
+      }
+    };
+
+    function renderStatusCards() {
+      const cardListContainer = document.getElementById('status-card-list');
+      const container = document.getElementById('status-container');
+      const docIds = Object.keys(activeOrdersData);
+
+      if (docIds.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+      cardListContainer.replaceChildren();
+
+      docIds.forEach(docId => {
+        const data = activeOrdersData[docId];
+        let statusBadgeClass = '';
+        let statusText = '';
+        let cardBorder = '';
+        let showCancelBtn = false;
+
+        if (data.status === 'pending') {
+          cardBorder = 'border-yellow-400 bg-yellow-50';
+          statusBadgeClass = 'bg-yellow-400 text-yellow-900';
+          statusText = '調理・準備中';
+          showCancelBtn = true;
+        } else if (data.status === 'ready') {
+          cardBorder = 'border-blue-500 bg-blue-50 animate-pulse';
+          statusBadgeClass = 'bg-blue-600 text-white';
+          statusText = '準備完了（受取可能です）';
+          showCancelBtn = true;
+        } else if (data.status === 'user_cancelled') {
+          cardBorder = 'border-orange-400 bg-orange-50';
+          statusBadgeClass = 'bg-orange-600 text-white';
+          statusText = 'キャンセル確認中';
+        } else if (data.status === 'completed') {
+          cardBorder = 'border-green-500 bg-green-50';
+          statusBadgeClass = 'bg-green-600 text-white';
+          statusText = '提供済み';
+
+          setTimeout(() => {
+            removeDocIdFromStorage(docId);
+          }, 5000);
+        } else if (data.status === 'cancelled') {
+          cardBorder = 'border-red-400 bg-red-50';
+          statusBadgeClass = 'bg-red-600 text-white';
+          statusText = 'キャンセル完了';
+
+          setTimeout(() => {
+            removeDocIdFromStorage(docId);
+          }, 4000);
+        }
+
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-lg border-2 ${cardBorder} text-center space-y-2`;
+
+        const topRow = document.createElement('div');
+        topRow.className = 'flex justify-between items-center text-xs font-bold text-gray-500';
+
+        const timeSpan = document.createElement('span');
+        timeSpan.textContent = `希望時間: ${data.timeSlot || ''}`;
+
+        const badgeSpan = document.createElement('span');
+        badgeSpan.className = `px-2 py-0.5 rounded-full text-xs font-bold ${statusBadgeClass}`;
+        badgeSpan.textContent = statusText;
+
+        topRow.append(timeSpan, badgeSpan);
+
+        const numberDiv = document.createElement('div');
+        numberDiv.className = 'text-2xl font-black text-indigo-700';
+        numberDiv.textContent = `No. ${data.orderNumber || '----'}`;
+
+        const detailDiv = document.createElement('div');
+        detailDiv.className = 'bg-white/80 p-2 rounded text-xs text-left border';
+
+        const ul = document.createElement('ul');
+        ul.className = 'list-disc list-inside text-gray-700 font-bold';
+
+        for (const [itemId, qty] of Object.entries(data.items || {})) {
+          if (qty > 0) {
+            const li = document.createElement('li');
+            li.textContent = `${itemNames[itemId] || itemId} × ${qty}`;
+            ul.appendChild(li);
+          }
+        }
+
+        const priceDiv = document.createElement('div');
+        priceDiv.className = 'text-right text-gray-600 font-bold mt-1 border-t pt-1';
+        priceDiv.textContent = `合計: ${data.totalPrice}円`;
+
+        detailDiv.append(ul, priceDiv);
+        card.append(topRow, numberDiv, detailDiv);
+
+        if (showCancelBtn) {
+          const btnDiv = document.createElement('div');
+          btnDiv.className = 'pt-1';
+
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'w-full bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded text-xs transition';
+          cancelBtn.textContent = 'この予約をキャンセルする';
+          cancelBtn.onclick = () => window.cancelOrder(docId, data.orderNumber || '');
+
+          btnDiv.appendChild(cancelBtn);
+          card.appendChild(btnDiv);
+        }
+
+        cardListContainer.appendChild(card);
+      });
+    }
+
+    function updateModalStatus(orderData) {
+      const badge = document.getElementById('modal-status-badge');
+      if (!badge || !orderData) return;
+
+      if (orderData.status === 'pending') {
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-400 text-yellow-900';
+        badge.textContent = '調理・準備中';
+      } else if (orderData.status === 'ready') {
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white animate-pulse';
+        badge.textContent = '準備完了（受取可能）';
+      } else if (orderData.status === 'user_cancelled') {
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-orange-600 text-white';
+        badge.textContent = 'キャンセル確認中';
+      } else if (orderData.status === 'completed') {
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-green-600 text-white';
+        badge.textContent = '提供済み';
+      } else if (orderData.status === 'cancelled') {
+        badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-red-600 text-white';
+        badge.textContent = 'キャンセル完了';
+      }
+    }
+
+    function renderMenu() {
+      const container = document.getElementById('menu-list');
+      container.replaceChildren();
+
+      items.forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'flex items-center justify-between border-b pb-3';
+
+        const infoDiv = document.createElement('div');
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'font-bold text-gray-800';
+        nameDiv.textContent = item.name;
+
+        const priceDiv = document.createElement('div');
+        priceDiv.className = 'text-sm text-gray-500';
+        priceDiv.textContent = `${item.price}円`;
+        infoDiv.append(nameDiv, priceDiv);
+
+        const ctrlDiv = document.createElement('div');
+        ctrlDiv.className = 'flex items-center space-x-2';
+
+        const minusBtn = document.createElement('button');
+        minusBtn.className = 'w-8 h-8 bg-gray-200 rounded-full font-bold text-lg';
+        minusBtn.textContent = '-';
+        minusBtn.onclick = () => window.updateQty(item.id, -1);
+
+        const qtySpan = document.createElement('span');
+        qtySpan.id = `qty-${item.id}`;
+        qtySpan.className = 'w-6 text-center font-bold';
+        qtySpan.textContent = '0';
+
+        const plusBtn = document.createElement('button');
+        plusBtn.className = 'w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full font-bold text-lg';
+        plusBtn.textContent = '+';
+        plusBtn.onclick = () => window.updateQty(item.id, 1);
+
+        ctrlDiv.append(minusBtn, qtySpan, plusBtn);
+        itemDiv.append(infoDiv, ctrlDiv);
+        container.appendChild(itemDiv);
+      });
+    }
+
+    window.updateQty = (id, change) => {
+      const newQty = Math.max(0, (cart[id] || 0) + change);
+
+      if (id === 'hotdog' && newQty > cart.frankfurter) {
+        alert('ホットドッグの数量は、フランクフルトの注文数を超えることはできません。');
+        return;
+      }
+
+      if (id === 'frankfurter' && newQty < cart.hotdog) {
+        alert('フランクフルトの数量を、ホットドッグの注文数より少なくすることはできません。');
+        return;
+      }
+
+      cart[id] = newQty;
+      document.getElementById(`qty-${id}`).textContent = cart[id];
+      calculateTotal();
+      updateHourOptions();
+    };
+
+    function calculateTotal() {
+      let total = 0;
+      items.forEach(item => {
+        total += (cart[item.id] || 0) * item.price;
+      });
+      document.getElementById('total-price').textContent = `${total}円`;
+      return total;
+    }
+
+    window.submitOrder = async () => {
+      const activeCount = Object.values(activeOrdersData).filter(
+        d => d.status === 'pending' || d.status === 'ready' || d.status === 'user_cancelled'
+      ).length;
+
+      const maxAllowed = parseInt(currentConfig.maxPerUser || 2, 10);
+
+      if (activeCount >= maxAllowed) {
+        return alert(`一度に受け付けられる予約は1人につき最大 ${maxAllowed} 件までです。\n商品をお受け取り後に再度ご利用ください。`);
+      }
+
+      const total = calculateTotal();
+      const hour = document.getElementById('select-hour').value;
+      const minute = document.getElementById('select-minute').value;
+
+      if (total === 0) return alert('商品を選択してください');
+      if (!hour || !minute) return alert('受取希望時間を時・分ともに選択してください');
+
+      const timeSlot = `${hour}:${minute}`;
+
+      const confirmMessage = `【予約内容の最終確認】\n\n・受取希望時間: ${timeSlot}\n・合計金額: ${total}円\n\nこの内容で予約を確定してよろしいですか？`;
+      if (!confirm(confirmMessage)) return;
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = '番号確認・送信中...';
+
+      try {
+        const orderNumber = await generateUniqueOrderNumber();
+
+        const orderData = {
+          orderNumber: orderNumber,
+          timeSlot: timeSlot,
+          items: { ...cart },
+          totalPrice: total,
+          status: 'pending',
+          createdAt: serverTimestamp()
+        };
+
+        const docRef = await addDoc(collection(db, "orders"), orderData);
+        latestCreatedDocId = docRef.id;
+
+        let savedDocIds = JSON.parse(localStorage.getItem('myDocIds') || '[]');
+        savedDocIds.push(docRef.id);
+        localStorage.setItem('myDocIds', JSON.stringify(savedDocIds));
+
+        watchAllSavedOrders();
+
+        document.getElementById('modal-order-number').textContent = orderNumber;
+        document.getElementById('modal-time-slot').textContent = `希望時間: ${timeSlot}`;
+        document.getElementById('modal-total-price').textContent = `${total}円`;
+
+        const modalItemList = document.getElementById('modal-item-list');
+        modalItemList.replaceChildren();
+
+        for (const [itemId, qty] of Object.entries(cart)) {
+          if (qty > 0) {
+            const li = document.createElement('li');
+            li.className = 'flex justify-between';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = itemNames[itemId] || itemId;
+
+            const qtySpan = document.createElement('span');
+            qtySpan.className = 'font-bold';
+            qtySpan.textContent = `× ${qty}`;
+
+            li.append(nameSpan, qtySpan);
+            modalItemList.appendChild(li);
+          }
+        }
+        updateModalStatus(orderData);
+
+        document.getElementById('success-modal').classList.remove('hidden');
+
+        cart = { frankfurter: 0, hotdog: 0 };
+        renderMenu();
+        calculateTotal();
+        document.getElementById('select-hour').value = '';
+        document.getElementById('select-minute').value = '';
+        document.getElementById('select-minute').disabled = true;
+        updateHourOptions();
+      } catch (e) {
+        console.error(e);
+        alert('予約の送信に失敗しました。');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '予約を確定する';
+      }
+    };
+
+    window.closeModal = () => {
+      document.getElementById('success-modal').classList.add('hidden');
+    };
+
+    renderMenu();
+    initSystem();
+    watchAllSavedOrders();
+  </script>
+</body>
+</html>
