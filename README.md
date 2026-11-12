@@ -19,4 +19,4 @@
 
 - **Frontend**: HTML5, Tailwind CSS, JavaScript (ES6+), Vite
 - **Database**: Firebase Firestore (Realtime Sync / NoSQL)
-- **Deployment**: Vercel / GitHub Pages
+- **Deployment**: Netlify / GitHub Pages
