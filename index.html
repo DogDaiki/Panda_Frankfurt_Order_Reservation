@@ -114,12 +114,12 @@
 
     const items = [
       { id: 'frankfurter', name: 'フランクフルト', price: 300 },
-      { id: 'hotdog', name: 'ホットドッグ', price: 400 }
+      { id: 'hotdog', name: 'パントッピング', price: 100 }
     ];
 
     const itemNames = {
       frankfurter: 'フランクフルト',
-      hotdog: 'ホットドッグ'
+      hotdog: 'パントッピング'
     };
 
     let cart = { frankfurter: 0, hotdog: 0 };
@@ -561,12 +561,12 @@
       const newQty = Math.max(0, (cart[id] || 0) + change);
 
       if (id === 'hotdog' && newQty > cart.frankfurter) {
-        alert('ホットドッグの数量は、フランクフルトの注文数を超えることはできません。');
+        alert('パントッピングの数量は、フランクフルトの注文数を超えることはできません。');
         return;
       }
 
       if (id === 'frankfurter' && newQty < cart.hotdog) {
-        alert('フランクフルトの数量を、ホットドッグの注文数より少なくすることはできません。');
+        alert('フランクフルトの数量を、パントッピングの注文数より少なくすることはできません。');
         return;
       }
 
