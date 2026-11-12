@@ -20,3 +20,12 @@
 - **Frontend**: HTML5, Tailwind CSS, JavaScript (ES6+), Vite
 - **Database**: Firebase Firestore (Realtime Sync / NoSQL)
 - **Deployment**: Netlify / GitHub Pages
+
+## ディレクトリ構成
+
+```text
+├── index.html          # 顧客用注文予約画面
+├── admin.html          # 店舗スタッフ用リアルタイム管理・集計画面
+├── package.json        # 依存パッケージ・ビルド設定
+├── .env.example        # 環境変数テンプレート
+└── .gitignore          # Git除外設定（.env / node_modules 等）
